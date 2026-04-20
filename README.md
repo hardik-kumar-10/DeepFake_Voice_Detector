@@ -1,6 +1,8 @@
 # VoiceShield — AI Deepfake Voice Detector
 ### Built as an internship demo for [PaladinAI](https://www.paladintech.ai/)
 
+**🚀 Live Demo: [https://deep-fake-voice-detector.vercel.app/](https://deep-fake-voice-detector.vercel.app/)**
+
 ---
 
 ## 🎯 What It Does
