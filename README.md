@@ -125,7 +125,7 @@ No frameworks. No dependencies. Pure Web APIs + OpenAI.
 
 ## 👨‍💻 About
 
-Built by [Your Name] as a demo project for the **PaladinAI internship application**.
+Built by Hardik Kumar as a demo project for the **PaladinAI internship application**.
 
 PaladinAI builds AI-powered cybersecurity tools for enterprises and governments, including deepfake detection, big data analytics, and AI case management.
 
