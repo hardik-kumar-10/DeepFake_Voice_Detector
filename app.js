@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initHistory();
   setupDropZone();
   setupFileInput();
-  setupApiKeyListener();
   setupAudioPlayer();
   setupScrollBehaviors();
 });
@@ -54,28 +53,11 @@ function setupFileInput() {
   });
 }
 
-function setupApiKeyListener() {
-  const input = document.getElementById('apiKey');
-  const apiDocKey = document.getElementById('api-doc-key');
-
-  input.addEventListener('input', (e) => {
-    const val = e.target.value.trim();
-    checkReadyState();
-
-    // Update API Docs real-time
-    if (val) {
-      const masked = val.length > 8 ? val.substring(0, 8) + '...' : val;
-      apiDocKey.textContent = masked;
-    } else {
-      apiDocKey.textContent = 'sk-...';
-    }
-  });
-}
 
 function handleAudioFile(file) {
   audioFile = file;
   document.getElementById('uploadCard').classList.add('has-file');
-  document.getElementById('api-doc-file').textContent = file.name;
+
 
   // Update upload label
   const label = document.querySelector('.upload-label');
@@ -201,7 +183,13 @@ async function toggleRecording() {
   if (!isRecording) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
+
+      // Determine supported mime type
+      const mimeTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
+      const supportedType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+
+      console.log('Recording with mimeType:', supportedType);
+      mediaRecorder = new MediaRecorder(stream, supportedType ? { mimeType: supportedType } : {});
       recordedChunks = [];
 
       mediaRecorder.ondataavailable = (e) => {
@@ -209,10 +197,19 @@ async function toggleRecording() {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-        const file = new File([blob], 'recorded-audio.webm', { type: 'audio/webm' });
+        const type = supportedType || 'audio/webm';
+        const extension = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(recordedChunks, { type });
+        const file = new File([blob], `recorded-audio.${extension}`, { type });
+
+        console.log('Recording stopped, file created:', file.name, file.size);
         handleAudioFile(file);
         stream.getTracks().forEach(t => t.stop());
+      };
+
+      mediaRecorder.onerror = (err) => {
+        console.error('Recorder error:', err);
+        showToast('Recording error occurred.', 'error');
       };
 
       mediaRecorder.start();
@@ -220,7 +217,8 @@ async function toggleRecording() {
       recordBtn.classList.add('recording');
       document.getElementById('recordLabel').textContent = 'Stop Recording';
     } catch (e) {
-      showToast('Microphone access denied.', 'error');
+      console.error('Microphone access error:', e);
+      showToast('Microphone access denied or not found.', 'error');
     }
   } else {
     mediaRecorder.stop();
@@ -231,21 +229,15 @@ async function toggleRecording() {
 }
 
 // ===== API KEY =====
-function toggleKey() {
-  const input = document.getElementById('apiKey');
-  input.type = input.type === 'password' ? 'text' : 'password';
-}
 
 function checkReadyState() {
-  const key = document.getElementById('apiKey').value.trim();
   const btn = document.getElementById('analyzeBtn');
-  btn.disabled = !(audioFile && key.startsWith('sk-'));
+  btn.disabled = !audioFile;
 }
 
 // ===== MAIN ANALYSIS =====
 async function analyzeAudio() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!audioFile || !apiKey) return;
+  if (!audioFile) return;
 
   // Show processing
   document.getElementById('processingSection').style.display = 'flex';
@@ -258,42 +250,45 @@ async function analyzeAudio() {
   }, 100);
 
   try {
-    // Step 1 — extract features
+    // Step 1 — extract features locally
     await activateStep('step1', 600);
-
     const audioFeatures = extractAudioFeatures(audioBuffer);
 
-    // Step 2 — Whisper transcription
-    await activateStep('step2', 800);
+    // Step 2-4 — Backend Analysis (Whisper + GPT)
+    // We update the UI to show progress while the single backend call runs
+    await activateStep('step2', 400);
 
-    let transcription = '';
-    try {
-      transcription = await transcribeWithWhisper(audioFile, apiKey);
-    } catch (e) {
-      transcription = '[Transcription unavailable]';
+    const formData = new FormData();
+    formData.append('file', audioFile);
+    formData.append('features', JSON.stringify(audioFeatures));
+
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.error || `HTTP ${response.status}`);
     }
 
-    // Step 3 — phonetic analysis
-    await activateStep('step3', 700);
+    // While waiting or after response, we can simulate the remaining steps for UX
+    await activateStep('step3', 500);
+    const data = await response.json();
 
-    // Step 4 — GPT analysis
-    await activateStep('step4', 900);
-
-    const analysisResult = await analyzeWithGPT(audioFeatures, transcription, apiKey);
-
-    // Step 5 — verdict
-    await activateStep('step5', 500);
+    await activateStep('step4', 600);
+    await activateStep('step5', 400);
 
     await sleep(400);
     document.getElementById('processingSection').style.display = 'none';
-    displayResults(analysisResult, transcription, audioFeatures);
+    displayResults(data.result, data.transcription, audioFeatures);
 
   } catch (err) {
     document.getElementById('processingSection').style.display = 'none';
     document.getElementById('analyzeBtn').disabled = false;
 
     let msg = 'Analysis failed. ';
-    if (err.message?.includes('401')) msg += 'Invalid API key.';
+    if (err.message?.includes('401')) msg += 'API Authentication Error.';
     else if (err.message?.includes('429')) msg += 'Rate limit hit. Try again.';
     else if (err.message?.includes('network')) msg += 'Network error.';
     else msg += err.message || 'Unknown error.';
@@ -408,113 +403,6 @@ function getDefaultFeatures() {
   return { duration: '?', sampleRate: '?', rms: '?', zcrRate: '?', dynamicRange: '?', spectralCentroid: '?', spectralFlatness: '?', silenceRatio: '?', pitchVariance: '?', channels: 1, fileName: 'unknown', fileSize: 'unknown' };
 }
 
-// ===== WHISPER TRANSCRIPTION =====
-async function transcribeWithWhisper(file, apiKey) {
-  const formData = new FormData();
-  formData.append('file', file, file.name || 'audio.mp3');
-  formData.append('model', 'whisper-1');
-  formData.append('response_format', 'json');
-
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}` },
-    body: formData
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || `HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.text || '';
-}
-
-// ===== GPT ANALYSIS =====
-async function analyzeWithGPT(features, transcription, apiKey) {
-  const systemPrompt = `You are an expert AI audio forensics system specialized in deepfake voice detection.
-Your role is to analyze audio features and transcription text to determine if a voice is authentic (human) or synthetic (AI-generated/deepfake).
-
-You analyze multiple signal layers:
-1. Spectral artifacts (unnatural frequency distributions, over-smoothed spectra)
-2. Prosodic patterns (pitch, rhythm, stress irregularities typical of TTS)
-3. Phonetic consistency (natural co-articulation vs. stitched phonemes)
-4. Silence and breathing patterns (AI voices often lack natural breath sounds)
-5. Micro-variations (humans have natural jitter; AI voices are often too consistent)
-
-IMPORTANT: Respond ONLY in valid JSON format. No markdown, no code blocks, just raw JSON.`;
-
-  const userPrompt = `Analyze this audio sample for deepfake voice detection.
-
-AUDIO FEATURES:
-- Duration: ${features.duration}s
-- Sample Rate: ${features.sampleRate}Hz
-- RMS Energy: ${features.rms}
-- Zero Crossing Rate: ${features.zcrRate}/sec
-- Dynamic Range: ${features.dynamicRange}
-- Spectral Centroid: ${features.spectralCentroid}
-- Spectral Flatness: ${features.spectralFlatness}
-- Silence Ratio: ${features.silenceRatio}%
-- Pitch Variance: ${features.pitchVariance}
-- Channels: ${features.channels}
-
-TRANSCRIPTION:
-"${transcription || '[No speech detected]'}"
-
-Provide your deepfake detection analysis in this exact JSON structure:
-{
-  "verdict": "DEEPFAKE" | "AUTHENTIC" | "UNCERTAIN",
-  "confidence": <number 0-100>,
-  "authenticity_score": <number 0-100, where 0=definitely fake, 100=definitely real>,
-  "risk_level": "HIGH" | "MEDIUM" | "LOW",
-  "metrics": {
-    "spectral_consistency": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" },
-    "prosodic_naturalness": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" },
-    "phonetic_coherence": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" },
-    "breath_pattern": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" },
-    "micro_variance": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" },
-    "temporal_coherence": { "score": <0-100>, "label": "one short phrase", "status": "normal" | "suspicious" | "anomalous" }
-  },
-  "report": {
-    "executive_summary": "2-3 sentence overview of findings",
-    "key_indicators": ["indicator 1", "indicator 2", "indicator 3"],
-    "spectral_analysis": "2-3 sentences on spectral findings",
-    "prosodic_analysis": "2-3 sentences on prosodic/rhythm findings",
-    "recommendation": "1-2 sentences on what action to take"
-  },
-  "detected_techniques": ["e.g. 'Neural TTS synthesis', 'Voice cloning', etc."] 
-}`;
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      max_tokens: 1200,
-      temperature: 0.3
-    })
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || `HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-  let text = data.choices[0].message.content.trim();
-
-  // Strip any markdown code fences
-  text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
-
-  return JSON.parse(text);
-}
 
 // ===== DISPLAY RESULTS =====
 function displayResults(result, transcription, features) {

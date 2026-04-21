@@ -13,3 +13,6 @@ package-lock.json
 
 # Environment
 .env
+
+# Local dev only
+dev-server.js

@@ -105,29 +105,6 @@
         </div>
       </section>
 
-      <!-- API Key Input -->
-      <section class="api-section">
-        <div class="api-card">
-          <label class="api-label">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <circle cx="5" cy="5" r="4" stroke="var(--accent)" stroke-width="1.2" />
-              <path d="M8 8l4 4" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round" />
-            </svg>
-            OpenAI API Key
-          </label>
-          <div class="api-input-wrap">
-            <input type="password" id="apiKey" placeholder="sk-..." class="api-input" />
-            <button class="btn-eye" onclick="toggleKey()">
-              <svg id="eyeIcon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="#888" stroke-width="1.2" />
-                <circle cx="8" cy="8" r="2" stroke="#888" stroke-width="1.2" />
-              </svg>
-            </button>
-          </div>
-          <p class="api-note">Your key is never stored — used only for this session. <a
-              href="https://platform.openai.com/api-keys" target="_blank">Get your key →</a></p>
-        </div>
-      </section>
 
       <!-- Analyze Button -->
       <div class="analyze-wrap">
@@ -306,8 +283,9 @@
       <section class="api-docs">
         <div class="api-card">
           <h3>Authentication</h3>
-          <p>Authorize your requests by including your API key in the header of every request.</p>
-          <pre class="code-block"><code>Authorization: Bearer YOUR_API_KEY</code></pre>
+          <p>For this demo, authentication is handled automatically by the VoiceShield backend. No manual key is
+            required.</p>
+          <pre class="code-block"><code>/* Automatic Authentication Enabled */</code></pre>
         </div>
 
         <div class="api-divider"></div>
@@ -319,9 +297,9 @@
 
           <div class="code-tabs">
             <div class="code-tab active">cURL</div>
-            <pre class="code-block"><code>curl -X POST https://api.paladinai.tech/v1/analyze \
-  -H "Authorization: Bearer <span id="api-doc-key">sk-...</span>" \
-  -F "file=@<span id="api-doc-file">voice_sample.mp3</span>"</code></pre>
+            <pre class="code-block"><code>curl -X POST https://voiceshield-detector.vercel.app/api/analyze \
+  -F "file=@voice_sample.mp3" \
+  -F "features={...}"</code></pre>
           </div>
 
           <div class="response-header">EXPECTED RESPONSE</div>
